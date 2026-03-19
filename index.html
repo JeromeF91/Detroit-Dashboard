@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Detroit Blight Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+    <script defer src="./app.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="title-wrap">
+          <h1>Detroit Blight Dashboard</h1>
+          <p>Explore blight ticket patterns by property address</p>
+        </div>
+        <form id="search-form" class="search-form">
+          <label for="address-input" class="sr-only">Address</label>
+          <input
+            id="address-input"
+            type="text"
+            placeholder="Try: 567 KITCHENER"
+            value="567 KITCHENER"
+            required
+          />
+          <button id="search-btn" type="submit">Search</button>
+          <button id="export-btn" class="secondary-btn" type="button">Export PDF</button>
+        </form>
+      </header>
+
+      <section class="kpi-grid" id="kpi-grid">
+        <article class="kpi-card">
+          <h2>Total Tickets</h2>
+          <p id="kpi-total">-</p>
+        </article>
+        <article class="kpi-card">
+          <h2>Open Balance Due</h2>
+          <p id="kpi-balance">-</p>
+        </article>
+        <article class="kpi-card">
+          <h2>In Collections</h2>
+          <p id="kpi-collections">-</p>
+        </article>
+        <article class="kpi-card">
+          <h2>Latest Ticket</h2>
+          <p id="kpi-latest">-</p>
+        </article>
+      </section>
+
+      <section class="chart-grid">
+        <article class="panel">
+          <div class="panel-head">
+            <h3>Disposition Breakdown</h3>
+          </div>
+          <canvas id="disposition-chart" aria-label="Disposition breakdown chart"></canvas>
+        </article>
+        <article class="panel">
+          <div class="panel-head">
+            <h3>Judgment Trend by Year</h3>
+          </div>
+          <canvas id="year-chart" aria-label="Judgment by year chart"></canvas>
+        </article>
+      </section>
+
+      <section class="panel table-panel">
+        <div class="panel-head">
+          <h3>Ticket Details</h3>
+          <p id="status" class="status">Ready</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Ticket #</th>
+                <th>Issued Date</th>
+                <th>Ordinance</th>
+                <th>Disposition</th>
+                <th>Judgment</th>
+                <th>Balance Due</th>
+                <th>Payment Status</th>
+                <th>Property Owner</th>
+                <th>Inspector</th>
+              </tr>
+            </thead>
+            <tbody id="ticket-body">
+              <tr>
+                <td colspan="9" class="empty-row">Search an address to load results</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>
