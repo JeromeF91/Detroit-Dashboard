@@ -30,6 +30,15 @@ body {
   padding: 2rem 1rem 3rem;
 }
 
+/* Add breathing room between dashboard categories */
+.app-shell > section {
+  margin-top: 1.1rem;
+}
+
+.app-shell > section:first-of-type {
+  margin-top: 0;
+}
+
 .topbar {
   display: flex;
   flex-wrap: wrap;
@@ -166,7 +175,7 @@ body {
 }
 
 .mapillary-panel {
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.25rem;
 }
 
 .mapillary-body {
@@ -311,6 +320,10 @@ tbody tr:hover {
 }
 
 @media (max-width: 740px) {
+  .app-shell > section {
+    margin-top: 0.9rem;
+  }
+
   .search-form {
     width: 100%;
   }

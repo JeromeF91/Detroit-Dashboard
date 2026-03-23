@@ -4,6 +4,8 @@ const SALES_API_ROOT =
   "https://services2.arcgis.com/qvkbeam7Wirps6zC/arcgis/rest/services/assessor_property_sales_view/FeatureServer/0/query";
 const TAX_API_ROOT =
   "https://services2.arcgis.com/qvkbeam7Wirps6zC/arcgis/rest/services/tentative_assessment_roll_2026/FeatureServer/0/query";
+const FIRE_API_ROOT =
+  "https://services2.arcgis.com/qvkbeam7Wirps6zC/arcgis/rest/services/Fire_Incidents/FeatureServer/0/query";
 const MAPILLARY_GRAPH = "https://graph.mapillary.com";
 
 /** Only consider imagery within this distance (m) of the address for “same street” / recency pick. */
@@ -32,12 +34,11 @@ function getMapillaryAppBaseUrl() {
 }
 
 /**
- * Mapillary web app query params. Manual browsing often produces URLs like:
- * `...?lat=...&lng=...&z=...&pKey=...` — map center + photo id together (see Mapillary app).
- * - With **`pKey`**: pass **`lat`/`lng`/`z`** from your **searched address** so the map matches ArcGIS.
- * - Map-only: omit `pKey`.
+ * Mapillary web app query params.
+ * Supports both map params (`lat`/`lng`/`z`) and optional photo-view params
+ * (`focus=photo`, `x`, `y`, `zoom`) to match URLs from manual browsing.
  */
-function buildMapillaryAppUrl({ pKey, lat, lng, zoom = 18, focus }) {
+function buildMapillaryAppUrl({ pKey, lat, lng, zoom = 18, focus, x, y, photoZoom }) {
   const url = new URL(getMapillaryAppBaseUrl());
   const key = pKey != null && String(pKey).trim() !== "" ? String(pKey).trim() : "";
   if (typeof lat === "number" && typeof lng === "number" && !Number.isNaN(lat) && !Number.isNaN(lng)) {
@@ -46,6 +47,11 @@ function buildMapillaryAppUrl({ pKey, lat, lng, zoom = 18, focus }) {
     url.searchParams.set("z", String(zoom));
   }
   if (focus) url.searchParams.set("focus", focus);
+  if (typeof x === "number" && !Number.isNaN(x)) url.searchParams.set("x", String(x));
+  if (typeof y === "number" && !Number.isNaN(y)) url.searchParams.set("y", String(y));
+  if (typeof photoZoom === "number" && !Number.isNaN(photoZoom)) {
+    url.searchParams.set("zoom", String(photoZoom));
+  }
   if (key) url.searchParams.set("pKey", key);
   return url.toString();
 }
@@ -81,6 +87,8 @@ const els = {
   exportBtn: document.querySelector("#export-btn"),
   status: document.querySelector("#status"),
   body: document.querySelector("#ticket-body"),
+  fireStatus: document.querySelector("#fire-status"),
+  fireBody: document.querySelector("#fire-body"),
   salesStatus: document.querySelector("#sales-status"),
   salesBody: document.querySelector("#sales-body"),
   taxStatus: document.querySelector("#tax-status"),
@@ -103,6 +111,9 @@ let mapillaryRequestSeq = 0;
 let dispositionChart;
 let yearChart;
 let currentRows = [];
+let currentSalesRows = [];
+let currentFireRows = [];
+let currentTaxRow = null;
 
 const currency = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -120,6 +131,10 @@ function setSalesStatus(message) {
 
 function setTaxStatus(message) {
   els.taxStatus.textContent = message;
+}
+
+function setFireStatus(message) {
+  els.fireStatus.textContent = message;
 }
 
 function setMapillaryStatus(message) {
@@ -180,6 +195,38 @@ function extractCoordinatesFromFeatures(blightFeatures, salesFeatures) {
     if (a) return a;
   }
   return null;
+}
+
+function extractParcelIdFromFeatures(blightFeatures, salesFeatures) {
+  const blight = Array.isArray(blightFeatures) ? blightFeatures : [];
+  const sales = Array.isArray(salesFeatures) ? salesFeatures : [];
+
+  const candidates = ["parcel_id", "parcelId", "parcelid"];
+  const get = (f) => {
+    const attrs = f && f.attributes ? f.attributes : {};
+    for (const k of candidates) {
+      if (attrs[k] != null && String(attrs[k]).trim() !== "") return attrs[k];
+    }
+    return null;
+  };
+
+  for (const f of blight) {
+    const v = get(f);
+    if (v != null) return normalizeParcelId(v);
+  }
+  for (const f of sales) {
+    const v = get(f);
+    if (v != null) return normalizeParcelId(v);
+  }
+  return null;
+}
+
+function normalizeParcelId(value) {
+  if (value == null) return "";
+  const s = String(value).trim();
+  // Observed format includes a trailing dot (e.g. "21016601.").
+  if (/^\d+$/.test(s)) return `${s}.`;
+  return s;
 }
 
 function distMeters(lat1, lon1, lat2, lon2) {
@@ -355,7 +402,16 @@ function renderMapillaryImage(image, plat, plng, accessToken) {
   const cap = getCoordsForMapillaryApp(image, plat, plng);
   const imageKey = getMapillaryImageKey(image);
   const openInMapillaryHref = imageKey
-    ? buildMapillaryAppUrl({ pKey: imageKey, lat: plat, lng: plng, zoom: 18 })
+    ? buildMapillaryAppUrl({
+        pKey: imageKey,
+        lat: plat,
+        lng: plng,
+        zoom: 18,
+        focus: "photo",
+        x: 0.5953902919553209,
+        y: 0.5197755704412165,
+        photoZoom: 0,
+      })
     : buildMapillaryAppUrl({ lat: plat, lng: plng, zoom: 18, focus: "map" });
   const mapAtPropertyHref = buildMapillaryAppUrl({
     lat: plat,
@@ -489,8 +545,24 @@ async function loadMapillarySection(coords) {
 
 function formatDate(value) {
   if (!value) return "-";
-  const isEpoch = typeof value === "number";
-  const date = new Date(isEpoch ? value : `${value}T00:00:00`);
+  // ArcGIS date fields sometimes come back as epoch milliseconds (number)
+  // or as numeric strings. Handle both.
+  let epochMs = null;
+  if (typeof value === "number") {
+    epochMs = value;
+  } else if (typeof value === "string") {
+    const s = value.trim();
+    const n = Number(s);
+    if (/^\d+$/.test(s) && !Number.isNaN(n) && n > 1e10) epochMs = n;
+  }
+
+  const date = new Date(
+    epochMs != null
+      ? epochMs
+      : typeof value === "string" && value.includes("T")
+        ? value
+        : `${value}T00:00:00`
+  );
   if (Number.isNaN(date.getTime())) return String(value);
   return date.toLocaleDateString("en-US", {
     year: "numeric",
@@ -541,6 +613,29 @@ function buildTaxUrl(address) {
     f: "json",
   });
   return `${TAX_API_ROOT}?${params.toString()}`;
+}
+
+function buildFireUrlByAddress(address) {
+  const where = `address = '${address.replace(/'/g, "''")}'`;
+  const params = new URLSearchParams({
+    where,
+    outFields: "*",
+    outSR: "4326",
+    f: "json",
+  });
+  return `${FIRE_API_ROOT}?${params.toString()}`;
+}
+
+function buildFireUrlByParcelId(parcelId) {
+  const pid = normalizeParcelId(parcelId);
+  const where = `parcel_id = '${pid.replace(/'/g, "''")}'`;
+  const params = new URLSearchParams({
+    where,
+    outFields: "*",
+    outSR: "4326",
+    f: "json",
+  });
+  return `${FIRE_API_ROOT}?${params.toString()}`;
 }
 
 function aggregateData(features) {
@@ -623,6 +718,7 @@ function renderSalesTable(rows) {
   if (!rows.length) {
     els.salesBody.innerHTML =
       '<tr><td colspan="4" class="empty-row">No transaction records found for this address</td></tr>';
+    currentSalesRows = [];
     return;
   }
 
@@ -631,6 +727,8 @@ function renderSalesTable(rows) {
     const db = Date.parse(`${b.sale_date || "1900-01-01"}T00:00:00`);
     return db - da;
   });
+
+  currentSalesRows = sorted;
 
   els.salesBody.innerHTML = sorted
     .map(
@@ -646,6 +744,54 @@ function renderSalesTable(rows) {
     .join("");
 }
 
+function renderFireSection(rows) {
+  if (!rows.length) {
+    els.fireStatus.textContent = "No fire record found";
+    els.fireBody.innerHTML =
+      '<tr><td colspan="6" class="empty-row">No fire incidents found for this address</td></tr>';
+    currentFireRows = [];
+    return;
+  }
+
+  // ArcGIS may return `called_at`/`arrived_at` as epoch milliseconds (number) or numeric strings.
+  const toMs = (value) => {
+    if (!value) return 0;
+    if (typeof value === "number") return value;
+    const s = String(value).trim();
+    const n = Number(s);
+    if (/^\d+$/.test(s) && !Number.isNaN(n) && n > 1e10) return n;
+    const parsed = Date.parse(String(value));
+    if (!Number.isNaN(parsed)) return parsed;
+    const day = Date.parse(`${value}T00:00:00`);
+    return Number.isNaN(day) ? 0 : day;
+  };
+
+  const sorted = [...rows].sort((a, b) => {
+    const da = toMs(a.called_at) || 0;
+    const db = toMs(b.called_at) || 0;
+    return db - da;
+  });
+
+  currentFireRows = sorted;
+
+  els.fireBody.innerHTML = sorted
+    .map(
+      (row) => `
+      <tr>
+        <td>${row.incident_number || row.incident_id || "-"}</td>
+        <td>${row.incident_type_description || row.incident_type || "-"}</td>
+        <td>${row.structure_status || "-"}</td>
+        <td>${formatDate(row.called_at)}</td>
+        <td>${formatDate(row.arrived_at)}</td>
+        <td>${formatDate(row.unit_cleared_at)}</td>
+      </tr>
+    `
+    )
+    .join("");
+
+  els.fireStatus.textContent = `Loaded ${sorted.length.toLocaleString()} incident(s)`;
+}
+
 function renderTaxSection(rows) {
   if (!rows.length) {
     els.taxAssessedTentative.textContent = "-";
@@ -654,10 +800,12 @@ function renderTaxSection(rows) {
     els.taxStatusValue.textContent = "-";
     els.taxBody.innerHTML =
       '<tr><td colspan="6" class="empty-row">No tax record found for this address</td></tr>';
+    currentTaxRow = null;
     return;
   }
 
   const row = rows[0];
+  currentTaxRow = row;
   els.taxAssessedTentative.textContent = currency.format(toNumber(row.amt_assessed_value_tentative));
   els.taxAssessedCurrent.textContent = currency.format(toNumber(row.amt_assessed_value));
   els.taxAssessedPrevious.textContent = currency.format(toNumber(row.amt_assessed_value_previous));
@@ -699,10 +847,41 @@ function exportPdf() {
     100
   );
 
+  const safeAddress = address.replace(/[^A-Z0-9]+/gi, "_").replace(/^_+|_+$/g, "");
+  const startY = 118;
+  let cursorY = startY;
+  const pageBottomY = 560;
+  const newPageStartY = 48;
+
+  const autoTableEndY = (res) => {
+    if (res && typeof res.finalY === "number") return res.finalY;
+    if (doc.lastAutoTable && typeof doc.lastAutoTable.finalY === "number") return doc.lastAutoTable.finalY;
+    return cursorY + 40;
+  };
+
+  const ensureRoom = (neededHeight = 24) => {
+    if (cursorY + neededHeight > pageBottomY) {
+      doc.addPage();
+      cursorY = newPageStartY;
+    }
+  };
+
+  const addSectionTitle = (title) => {
+    ensureRoom(28);
+    doc.setFontSize(14);
+    doc.text(title, 40, cursorY);
+    cursorY += 18;
+    doc.setFontSize(10);
+  };
+
+  // Tickets
   if (!currentRows.length) {
+    ensureRoom(20);
     doc.setFontSize(12);
-    doc.text("No ticket data available for this address.", 40, 130);
+    doc.text("Tickets: no ticket data available for this address.", 40, cursorY);
+    cursorY += 24;
   } else {
+    ensureRoom(36);
     const bodyRows = currentRows.map((row) => [
       row.ticket_number || "-",
       formatDate(row.ticket_issued_date),
@@ -716,7 +895,7 @@ function exportPdf() {
     ]);
 
     doc.autoTable({
-      startY: 118,
+      startY: cursorY,
       head: [
         [
           "Ticket #",
@@ -735,9 +914,131 @@ function exportPdf() {
       headStyles: { fillColor: [25, 35, 65] },
       theme: "grid",
     });
+    cursorY = autoTableEndY(doc.lastAutoTable) + 22;
   }
 
-  const safeAddress = address.replace(/[^A-Z0-9]+/gi, "_").replace(/^_+|_+$/g, "");
+  // Past Transactions
+  addSectionTitle("Past Transactions");
+
+  if (!currentSalesRows.length) {
+    ensureRoom(20);
+    doc.text("No transaction records found for this address.", 40, cursorY);
+    cursorY += 20;
+  } else {
+    ensureRoom(36);
+    const salesRows = currentSalesRows.map((row) => [
+      formatDate(row.sale_date),
+      row.grantor || "-",
+      row.grantee || "-",
+      toNumber(row.amt_sale_price) > 0 ? currency.format(toNumber(row.amt_sale_price)) : "-",
+    ]);
+
+    const res = doc.autoTable({
+      startY: cursorY,
+      head: [["Sale Date", "Grantor (Seller)", "Grantee (Buyer)", "Sale Price"]],
+      body: salesRows,
+      styles: { fontSize: 8, cellPadding: 4 },
+      headStyles: { fillColor: [25, 35, 65] },
+      theme: "grid",
+    });
+    cursorY = autoTableEndY(res) + 22;
+  }
+
+  // Fire Incidents
+  addSectionTitle("Fire Incidents");
+
+  if (!currentFireRows.length) {
+    ensureRoom(20);
+    doc.text("No fire incidents found for this address.", 40, cursorY);
+    cursorY += 20;
+  } else {
+    ensureRoom(36);
+    const fireRows = currentFireRows.map((row) => [
+      row.incident_number || row.incident_id || "-",
+      row.incident_type_description || row.incident_type || "-",
+      row.structure_status || "-",
+      formatDate(row.called_at),
+      formatDate(row.arrived_at),
+      formatDate(row.unit_cleared_at),
+    ]);
+
+    const res = doc.autoTable({
+      startY: cursorY,
+      head: [["Incident #", "Type", "Structure Status", "Called", "Arrived", "Cleared"]],
+      body: fireRows,
+      styles: { fontSize: 8, cellPadding: 4 },
+      headStyles: { fillColor: [25, 35, 65] },
+      theme: "grid",
+    });
+    cursorY = autoTableEndY(res) + 22;
+  }
+
+  // Tax Category
+  addSectionTitle("Tax Category");
+
+  if (!currentTaxRow) {
+    ensureRoom(20);
+    doc.text("No tax record found for this address.", 40, cursorY);
+    cursorY += 20;
+  } else {
+    const tax = currentTaxRow;
+    ensureRoom(68);
+    doc.text(`Tentative Assessed Value: ${currency.format(toNumber(tax.amt_assessed_value_tentative))}`, 40, cursorY);
+    cursorY += 14;
+    doc.text(`Current Assessed Value: ${currency.format(toNumber(tax.amt_assessed_value))}`, 40, cursorY);
+    cursorY += 14;
+    doc.text(`Previous Assessed Value: ${currency.format(toNumber(tax.amt_assessed_value_previous))}`, 40, cursorY);
+    cursorY += 14;
+    doc.text(`Tax Status: ${tax.tax_status_description || tax.tax_status || "-"}`, 40, cursorY);
+    cursorY += 14;
+
+    const taxpayerRow = [
+      tax.taxpayer_1 || "-",
+      tax.taxpayer_2 || "-",
+      tax.taxpayer_address || "-",
+      tax.taxpayer_city || "-",
+      tax.taxpayer_state || "-",
+      tax.taxpayer_zip_code || "-",
+    ];
+
+    const res = doc.autoTable({
+      startY: cursorY,
+      head: [["Taxpayer 1", "Taxpayer 2", "Mailing Address", "City", "State", "ZIP"]],
+      body: [taxpayerRow],
+      styles: { fontSize: 8, cellPadding: 4 },
+      headStyles: { fillColor: [25, 35, 65] },
+      theme: "grid",
+      margin: { left: 40, right: 40 },
+    });
+    cursorY = autoTableEndY(res) + 22;
+  }
+
+  // Mapillary (summary only)
+  addSectionTitle("Mapillary");
+
+  const mapStatus = els.mapillaryStatus ? els.mapillaryStatus.textContent : "";
+  ensureRoom(20);
+  doc.text(`Status: ${mapStatus || "-"}`, 40, cursorY);
+  cursorY += 14;
+
+  const mapLink = els.mapillaryInfoLink ? els.mapillaryInfoLink.href : "";
+  if (mapLink) {
+    doc.setFontSize(9);
+    const lines = doc.splitTextToSize(`Link: ${mapLink}`, 900);
+    ensureRoom(lines.length * 12 + 6);
+    doc.text(lines, 40, cursorY);
+    cursorY += lines.length * 12;
+    doc.setFontSize(10);
+  }
+
+  // Disclaimers (short)
+  ensureRoom(20);
+  doc.setFontSize(8);
+  doc.text(
+    "Note: Some data is informational and may change over time (tax + transaction sources).",
+    40,
+    cursorY + 12
+  );
   doc.save(`detroit-dashboard-${safeAddress || "address"}.pdf`);
   setStatus("PDF exported.");
 }
@@ -815,15 +1116,25 @@ async function loadAddress(address) {
   setStatus("Loading...");
   setSalesStatus("Loading...");
   setTaxStatus("Loading...");
+  setFireStatus("Loading...");
   setMapillaryStatus("Loading...");
-  const url = buildUrl(address.trim().toUpperCase());
-  const salesUrl = buildSalesUrl(address.trim().toUpperCase());
-  const taxUrl = buildTaxUrl(address.trim().toUpperCase());
+
+  // Clear export caches so a failed request doesn't reuse prior search data.
+  currentRows = [];
+  currentSalesRows = [];
+  currentFireRows = [];
+  currentTaxRow = null;
+
+  const normalizedAddress = address.trim().toUpperCase();
+  const url = buildUrl(normalizedAddress);
+  const salesUrl = buildSalesUrl(normalizedAddress);
+  const taxUrl = buildTaxUrl(normalizedAddress);
 
   let blightAttrs = [];
   let salesRows = [];
   let blightFeatures = [];
   let saleFeatures = [];
+  let fireRows = [];
 
   try {
     const [blightResult, salesResult, taxResult] = await Promise.allSettled([
@@ -873,12 +1184,38 @@ async function loadAddress(address) {
         '<tr><td colspan="6" class="empty-row">Error loading tax information</td></tr>';
     }
 
+    const parcelId = extractParcelIdFromFeatures(blightFeatures, saleFeatures);
+    const fireUrl = parcelId
+      ? buildFireUrlByParcelId(parcelId)
+      : buildFireUrlByAddress(normalizedAddress);
+
+    const fireResult =
+      await (async () => {
+        try {
+          const res = await fetch(fireUrl);
+          return { status: "fulfilled", value: res };
+        } catch (e) {
+          return { status: "rejected", reason: e };
+        }
+      })();
+
+    if (fireResult.status === "fulfilled" && fireResult.value.ok) {
+      const fireData = await fireResult.value.json();
+      const fireFeatures = Array.isArray(fireData.features) ? fireData.features : [];
+      fireRows = fireFeatures.map((item) => item.attributes || {});
+      renderFireSection(fireRows);
+    } else {
+      setFireStatus("Failed to load fire incidents.");
+      renderFireSection([]);
+    }
+
     await loadMapillarySection(extractCoordinatesFromFeatures(blightFeatures, saleFeatures));
   } catch (error) {
     console.error(error);
     setStatus("Failed to load data. Check network/API and try again.");
     setSalesStatus("Failed to load transactions.");
     setTaxStatus("Failed to load tax record.");
+    setFireStatus("Failed to load fire incidents.");
     setMapillaryStatus("Failed");
     mapillaryRequestSeq += 1;
     updateMapillaryInfoLink(null, null);
