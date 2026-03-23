@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Detroit Blight Dashboard</title>
+    <title>Detroit Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -11,6 +11,7 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles.css" />
+    <script src="./config.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
@@ -20,7 +21,7 @@
     <div class="app-shell">
       <header class="topbar">
         <div class="title-wrap">
-          <h1>Detroit Blight Dashboard</h1>
+          <h1>Detroit Dashboard</h1>
           <p>Explore blight ticket patterns by property address</p>
         </div>
         <form id="search-form" class="search-form">
@@ -36,6 +37,24 @@
           <button id="export-btn" class="secondary-btn" type="button">Export PDF</button>
         </form>
       </header>
+
+      <section class="panel mapillary-panel">
+        <div class="panel-head">
+          <h3>Street-level imagery</h3>
+          <p id="mapillary-status" class="status">Ready</p>
+        </div>
+        <p class="data-note">
+          Photos from
+          <a id="mapillary-info-link" href="https://www.mapillary.com/" target="_blank" rel="noopener noreferrer"
+            >Mapillary</a
+          >
+          (community street imagery). Not the exact property boundary—nearest available capture. Add a Client Token in
+          <code>config.js</code> to load images.
+        </p>
+        <div class="mapillary-body" id="mapillary-body">
+          <p class="empty-row mapillary-placeholder">Search an address with coordinates to load imagery.</p>
+        </div>
+      </section>
 
       <section class="kpi-grid" id="kpi-grid">
         <article class="kpi-card">
@@ -94,6 +113,82 @@
             <tbody id="ticket-body">
               <tr>
                 <td colspan="9" class="empty-row">Search an address to load results</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h3>Tax Category</h3>
+          <p id="tax-status" class="status">Ready</p>
+        </div>
+        <p class="data-note">
+          For information only: assessment/taxpayer records can change and may contain reporting
+          or timing differences.
+        </p>
+        <div class="kpi-grid tax-kpi-grid">
+          <article class="kpi-card">
+            <h2>Tentative Assessed Value</h2>
+            <p id="tax-assessed-tentative">-</p>
+          </article>
+          <article class="kpi-card">
+            <h2>Current Assessed Value</h2>
+            <p id="tax-assessed-current">-</p>
+          </article>
+          <article class="kpi-card">
+            <h2>Previous Assessed Value</h2>
+            <p id="tax-assessed-previous">-</p>
+          </article>
+          <article class="kpi-card">
+            <h2>Tax Status</h2>
+            <p id="tax-status-value">-</p>
+          </article>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Taxpayer 1</th>
+                <th>Taxpayer 2</th>
+                <th>Mailing Address</th>
+                <th>City</th>
+                <th>State</th>
+                <th>ZIP</th>
+              </tr>
+            </thead>
+            <tbody id="tax-body">
+              <tr>
+                <td colspan="6" class="empty-row">Search an address to load tax information</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel table-panel">
+        <div class="panel-head">
+          <h3>Past Transactions</h3>
+          <p id="sales-status" class="status">Ready</p>
+        </div>
+        <p class="data-note">
+          For information only: transaction records may be incomplete or inaccurate (for example:
+          off-market deals, combined parcel sales, recording delays, or data-entry issues).
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Sale Date</th>
+                <th>Grantor (Seller)</th>
+                <th>Grantee (Buyer)</th>
+                <th>Sale Price</th>
+              </tr>
+            </thead>
+            <tbody id="sales-body">
+              <tr>
+                <td colspan="4" class="empty-row">Search an address to load transactions</td>
               </tr>
             </tbody>
           </table>

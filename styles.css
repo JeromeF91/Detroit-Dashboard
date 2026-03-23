@@ -97,6 +97,11 @@ body {
   margin: 1rem 0;
 }
 
+.tax-kpi-grid {
+  margin-top: 0.8rem;
+  margin-bottom: 0.5rem;
+}
+
 .kpi-card,
 .panel {
   background: linear-gradient(180deg, var(--panel-soft), var(--panel));
@@ -139,6 +144,99 @@ body {
 .status {
   margin: 0;
   color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.data-note {
+  margin: 0.5rem 0 0.2rem;
+  font-size: 0.88rem;
+  color: #b6c4e6;
+}
+
+.data-note code {
+  font-size: 0.85em;
+  background: rgba(103, 232, 249, 0.1);
+  padding: 0.1rem 0.35rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.data-note a {
+  color: var(--accent);
+}
+
+.mapillary-panel {
+  margin-bottom: 0.5rem;
+}
+
+.mapillary-body {
+  margin-top: 0.75rem;
+}
+
+.mapillary-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .mapillary-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mapillary-img-wrap {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #0a0f1c;
+  min-height: 200px;
+}
+
+.mapillary-img-wrap img {
+  display: block;
+  width: 100%;
+  height: auto;
+  vertical-align: middle;
+}
+
+.mapillary-meta {
+  font-size: 0.9rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.mapillary-meta strong {
+  color: var(--text);
+}
+
+.mapillary-placeholder {
+  margin: 0;
+  padding: 0.2rem 0;
+}
+
+.mapillary-actions {
+  margin-top: 0.8rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.mapillary-actions a {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.mapillary-actions--stack {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.mapillary-link-secondary {
+  font-weight: 500;
   font-size: 0.9rem;
 }
 
